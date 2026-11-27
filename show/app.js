@@ -16,8 +16,41 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || /[?&]s
 const useFallback = reduced || !webglOK() || /[?&]fallback\b/.test(location.search);
 
 // ---------------- shared chrome: text, progress, input ----------------
+const phoneMQ = matchMedia('(orientation:portrait),(max-aspect-ratio:1/1)');
+const phone = () => phoneMQ.matches;
+// phone layout: scene = top 58 %, text panel = bottom 42 % (expands to 84 %)
+const PANEL = .42;
+function layout() {
+  const h = innerHeight, r = document.documentElement.style;
+  if (!phone()) { r.removeProperty('--ph'); r.removeProperty('--pH'); return; }
+  r.setProperty('--ph', Math.round(h * PANEL) + 'px'); r.setProperty('--pH', Math.round(h * .84) + 'px');
+}
+function setOpen(v) {
+  document.body.classList.toggle('open', !!v);
+  document.querySelectorAll('.grip').forEach(g => g.setAttribute('aria-expanded', v ? 'true' : 'false'));
+  if (!v) slides.forEach(s => s.scrollTop = 0);
+}
+slides.forEach(s => {
+  if (!s.querySelector('.x')) { s.classList.add('nog'); return; }
+  const g = document.createElement('button'); g.type = 'button'; g.className = 'grip'; g.setAttribute('aria-expanded', 'false');
+  g.innerHTML = '<span class="a">Подробнее</span><span class="c">Свернуть</span><i aria-hidden="true">▲</i>';
+  g.addEventListener('click', () => setOpen(!document.body.classList.contains('open')));
+  s.prepend(g);
+});
 function fit() {
+  layout();
   for (const s of slides) {
+    if (phone()) { // phone: fixed sizes, headings shrink to at most 3 lines
+      s.style.setProperty('--k', 1);
+      const wasOn = s.classList.contains('on'); s.style.visibility = 'hidden'; s.style.display = 'flex';
+      s.querySelectorAll('h1,h2').forEach(e => {
+        e.style.fontSize = ''; let px = parseFloat(getComputedStyle(e).fontSize);
+        while (e.getBoundingClientRect().height > px * 1.12 * 3 + 2 && px > 17) { px -= 1; e.style.fontSize = px + 'px'; }
+      });
+      s.style.visibility = ''; s.style.display = ''; if (wasOn) s.classList.add('on');
+      continue;
+    }
+    s.querySelectorAll('h1,h2').forEach(e => e.style.fontSize = '');
     let k = 1; s.style.setProperty('--k', k);
     const wasOn = s.classList.contains('on'); s.style.visibility = 'hidden'; s.style.display = 'flex';
     while (s.scrollHeight > s.clientHeight + 2 && k > .55) { k -= .03; s.style.setProperty('--k', k.toFixed(2)); }
@@ -25,6 +58,7 @@ function fit() {
   }
 }
 function showText(n, delay) {
+  setOpen(false);
   slides.forEach((s, i) => {
     if (i !== n) { s.classList.remove('on'); s.querySelectorAll('.r').forEach(e => e.style.transitionDelay = '0s'); }
   });
@@ -41,6 +75,7 @@ function showText(n, delay) {
 function bindInput(go) {
   let wheelQuietUntil = 0, acc = 0;
   addEventListener('wheel', e => {
+    if (phone() && document.body.classList.contains('open') && e.target.closest('.slide')) return;
     e.preventDefault();
     const now = performance.now();
     if (now < wheelQuietUntil) { wheelQuietUntil = Math.max(wheelQuietUntil, now + 220); return; }
@@ -55,15 +90,22 @@ function bindInput(go) {
     else if (k === 'Home') go(0); else if (k === 'End') go(N - 1);
   });
   let tx = 0, ty = 0, tt = 0;
-  addEventListener('touchstart', e => { const t = e.touches[0]; tx = t.clientX; ty = t.clientY; tt = performance.now(); }, { passive: true });
+  let st0 = 0;
+  addEventListener('touchstart', e => { const t = e.touches[0]; tx = t.clientX; ty = t.clientY; tt = performance.now(); st0 = e.target.closest?.('.slide')?.scrollTop || 0; }, { passive: true });
   addEventListener('touchmove', e => { if (!e.target.closest('a')) e.preventDefault(); }, { passive: false });
   addEventListener('touchend', e => {
     const t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 36 || performance.now() - tt > 900) return; // taps go to the edge buttons
+    if (phone()) { // horizontal swipe pages; vertical swipe on the panel opens/closes it, never pages
+      if (Math.abs(dx) > Math.abs(dy)) go(cur + (dx < 0 ? 1 : -1));
+      else if (e.target.closest?.('.slide.on')) { if (dy < 0) setOpen(true); else if (st0 <= 0) setOpen(false); }
+      return;
+    }
     go(cur + ((Math.abs(dy) > Math.abs(dx) ? -dy : -dx) > 0 ? 1 : -1));
   });
-  $('#prev').addEventListener('click', () => go(cur - 1));
-  $('#next').addEventListener('click', () => go(cur + 1));
+  const edge = d => () => { if (phone() && document.body.classList.contains('open')) setOpen(false); else go(cur + d); };
+  $('#prev').addEventListener('click', edge(-1));
+  $('#next').addEventListener('click', edge(1));
   addEventListener('hashchange', () => { const n = hashN(); if (n !== cur) go(n, true); });
 }
 
@@ -563,9 +605,9 @@ vec2 uP = vXZ / 2.3, uT = vXZ / 2.4; diffuseColor.rgb *= mix(texture(tFl, uP).rg
     { p: [10, 19, 17], t: [0, 0, .4], f: 36, fog: [40, 110], drift: { p: [6.5, 19.5, 19.5], d: 10 } },
     { p: [.4, 23, 3.2], t: [0, 0, .2], f: 36, fog: [40, 110], m: 2.15 },
     { p: [-14, 10.5, 15], t: [0, .5, 0], f: 36, fog: [40, 110], drift: { p: [-16.5, 10, 11.5], d: 9 } },
-    { p: [-5.4, 1.5, 4.05], t: [-1.0, 1.05, -3], f: 54, fm: 70, m: 1, fog: [60, 200], via: [[-4.8, 6.2, 4.6]], dur: 2.3, drift: { p: [-4.1, 1.55, 4.0], t: [-.2, 1.0, -3.2], d: 8 } },
-    { p: [-5.55, 2.55, 4.25], t: [-2.4, .45, -1.2], f: 52, fm: 70, m: 1, fog: [60, 200] },
-    { p: [-3.0, 2.05, 4.15], t: [-2.2, .7, -1.4], f: 54, fm: 72, m: 1, fog: [60, 200] },
+    { p: [-5.4, 1.5, 4.05], t: [-1.0, 1.05, -3], f: 54, fm: 78, m: 1, fog: [60, 200], via: [[-4.8, 6.2, 4.6]], dur: 2.3, drift: { p: [-4.1, 1.55, 4.0], t: [-.2, 1.0, -3.2], d: 8 } },
+    { p: [-5.55, 2.55, 4.25], t: [-2.4, .45, -1.2], f: 52, fm: 82, m: 1, fog: [60, 200] },
+    { p: [-3.0, 2.05, 4.15], t: [-2.2, .7, -1.4], f: 54, fm: 80, m: 1, fog: [60, 200] },
     { p: [-34, 4, 62], t: [0, -5.5, 0], f: 38, m: 2.1, fog: [90, 240], via: [[-3.0, 1.95, 4.5], [-3.6, 2.5, 9]], dur: 2.6 },
     { p: [-64, 40, 72], t: [6, -9, 0], f: 40, fog: [100, 300], m: 1.5, drift: { p: [-74, 42, 58], d: 10 } },
     { p: [46, 30, 58], t: [0, -9, 0], f: 40, fog: [100, 300], m: 1.5, drift: { p: [56, 32, 44], d: 10 } },
@@ -702,7 +744,7 @@ vec2 uP = vXZ / 2.3, uT = vXZ / 2.4; diffuseColor.rgb *= mix(texture(tFl, uP).rg
     vf.classList.toggle('on', P.vf > .5);
     if (P.vf > .01) {
       const c = [[-7.2, -5.6], [7.2, -5.6], [7.2, 5.6], [-7.2, 5.6]].map(([x, z]) => toScreen(V(x, 0, z)));
-      const xs = c.map(q => clamp(q[0], 14, innerWidth - 14)), ys = c.map(q => clamp(q[1], 74, innerHeight - 60));
+      const xs = c.map(q => clamp(q[0], 14, innerWidth - 14)), ys = c.map(q => clamp(q[1], 74, phone() ? innerHeight * (1 - PANEL) - 14 : innerHeight - 60));
       Object.assign(vf.style, { left: Math.min(...xs) + 'px', top: Math.min(...ys) + 'px', width: (Math.max(...xs) - Math.min(...xs)) + 'px', height: (Math.max(...ys) - Math.min(...ys)) + 'px', right: 'auto', bottom: 'auto' });
     }
     const pOn = P.plot > .5 && P.sink < .2;
@@ -714,12 +756,15 @@ vec2 uP = vXZ / 2.3, uT = vXZ / 2.4; diffuseColor.rgb *= mix(texture(tFl, uP).rg
   let running = false, shadowDirty = true;
   const stats = { maxCalls: 0, maxTris: 0, perSlide: {}, texMs: Math.round(tT1 - tT0), envMs: Math.round(tT2 - tT1), boot: Math.round(performance.now()) };
   window.__show = { stats, P, dbg: { camera, renderer, scene, cam }, resume: () => { window.__hold = false; const im = $('#snap'); if (im) im.remove(); kick(); },
-    snap: () => { window.__hold = true; const im = $('#snap') || Object.assign(document.createElement('img'), { id: 'snap' }); im.src = canvas.toDataURL(); im.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none'; canvas.after(im); }, frames: 0, get busy() { return running; }, get cur() { return cur; } };
+    snap: () => { window.__hold = true; const im = $('#snap') || Object.assign(document.createElement('img'), { id: 'snap' }); im.src = canvas.toDataURL(); im.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:' + (canvas.style.height || '100%') + ';pointer-events:none'; canvas.after(im); }, frames: 0, get busy() { return running; }, get cur() { return cur; } };
   function resize() {
     const w = innerWidth, h = innerHeight;
-    renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    if (portrait()) camera.setViewOffset(w, h, 0, h * .29, w, h); else camera.setViewOffset(w, h, -w * .2, 0, w, h);
+    if (phone()) { // draw only the visible scene zone (top 58 %), framed as the centre of that zone
+      const zh = h - Math.round(h * PANEL);
+      renderer.setSize(w, zh, false); canvas.style.height = zh + 'px';
+      camera.setViewOffset(w, h, 0, h * .5 - zh / 2, w, zh);
+    } else { canvas.style.height = ''; renderer.setSize(w, h, false); camera.setViewOffset(w, h, -w * .2, 0, w, h); }
     camera.updateProjectionMatrix();
     fit(); kick();
   }
